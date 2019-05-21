@@ -223,7 +223,7 @@ void check_power_off_from_hos()
 #define RCM_PAYLOAD_ADDR    (EXT_PAYLOAD_ADDR + ALIGN(PATCHED_RELOC_SZ, 0x10))
 #define COREBOOT_ADDR       (0xD0000000 - 0x100000)
 #define CBFS_DRAM_EN_ADDR   0x4003e000
-#define  CBFS_DRAM_MAGIC    0x4452414D // "DRAM"
+#define CBFS_DRAM_MAGIC     0x4452414D // "DRAM"
 
 void reloc_patcher(u32 payload_dst, u32 payload_src, u32 payload_size)
 {
@@ -1041,7 +1041,7 @@ void about()
 
 	btn_wait();
 }
-
+/*
 ment_t ment_options[] = {
 	MDEF_BACK(),
 	MDEF_CHGLINE(),
@@ -1085,7 +1085,9 @@ ment_t ment_restore[] = {
 	MDEF_CHGLINE(),
 	MDEF_CAPTION("------ Full --------", 0xFF0AB9E6),
 	MDEF_HANDLER("Restore eMMC BOOT0/1", restore_emmc_boot),
+	MDEF_HANDLER("Restore eMMC BOOT0/1 - LZ4", restore_emmc_boot_lz4),
 	MDEF_HANDLER("Restore eMMC RAW GPP", restore_emmc_rawnand),
+	MDEF_HANDLER("Restore eMMC RAW GPP - LZ4", restore_emmc_rawnand_lz4),
 	MDEF_CHGLINE(),
 	MDEF_CAPTION("-- GPP Partitions --", 0xFF0AB9E6),
 	MDEF_HANDLER("Restore GPP partitions", restore_emmc_gpp_parts),
@@ -1102,7 +1104,9 @@ ment_t ment_backup[] = {
 	MDEF_CHGLINE(),
 	MDEF_CAPTION("------ Full --------", 0xFF0AB9E6),
 	MDEF_HANDLER("Backup eMMC BOOT0/1", dump_emmc_boot),
+	MDEF_HANDLER("Backup eMMC BOOT0/1 - LZ4", dump_emmc_boot_lz4),
 	MDEF_HANDLER("Backup eMMC RAW GPP", dump_emmc_rawnand),
+	MDEF_HANDLER("Backup eMMC RAW GPP - LZ4", dump_emmc_rawnand_lz4),
 	MDEF_CHGLINE(),
 	MDEF_CAPTION("-- GPP Partitions --", 0xFF0AB9E6),
 	MDEF_HANDLER("Backup eMMC SYS", dump_emmc_system),
@@ -1140,19 +1144,21 @@ menu_t menu_tools = {
 	ment_tools,
 	"Tools", 0, 0
 };
+*/
 
 ment_t ment_top[] = {
-	MDEF_HANDLER("Launch", launch_firmware),
-	MDEF_MENU("Options", &menu_options),
+	MDEF_HANDLER("Launch LZ4 Restore test", restore_emmc_rawnand_lz4),
+	// MDEF_HANDLER("Launch", launch_firmware),
+	// MDEF_MENU("Options", &menu_options),
+	// MDEF_CAPTION("---------------", 0xFF444444),
+	// MDEF_MENU("Tools", &menu_tools),
+	// MDEF_MENU("Console info", &menu_cinfo),
 	MDEF_CAPTION("---------------", 0xFF444444),
-	MDEF_MENU("Tools", &menu_tools),
-	MDEF_MENU("Console info", &menu_cinfo),
-	MDEF_CAPTION("---------------", 0xFF444444),
-	MDEF_HANDLER("Reboot (Normal)", reboot_normal),
+	// MDEF_HANDLER("Reboot (Normal)", reboot_normal),
 	MDEF_HANDLER("Reboot (RCM)", reboot_rcm),
 	MDEF_HANDLER("Power off", power_off),
 	MDEF_CAPTION("---------------", 0xFF444444),
-	MDEF_HANDLER("About", about),
+	// MDEF_HANDLER("About", about),
 	MDEF_END()
 };
 menu_t menu_top = {
@@ -1204,6 +1210,7 @@ void ipl_main()
 	display_backlight_pwm_init();
 	//display_backlight_brightness(h_cfg.backlight, 1000);
 
+/*
 	// Check if we had a panic while in CFW.
 	secmon_exo_check_panic();
 
@@ -1212,6 +1219,7 @@ void ipl_main()
 
 	// Load saved configuration and auto boot if enabled.
 	auto_launch_firmware();
+*/
 
 	while (true)
 		tui_do_menu(&menu_top);

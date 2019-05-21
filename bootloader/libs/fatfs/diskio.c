@@ -46,7 +46,9 @@ DRESULT disk_read (
 	UINT count		/* Number of sectors to read */
 )
 {
-	if ((u32)buff >= DRAM_START)
+	// if ((u32)buff >= DRAM_START
+	//// 	|| (((u32)buff >= 0x40000000) && ((u32)buff < 0x40004000))
+	// 	)
 		return sdmmc_storage_read(&sd_storage, sector, count, buff) ? RES_OK : RES_ERROR;
 	u8 *buf = (u8 *)SDMMC_UPPER_BUFFER;
 	if (sdmmc_storage_read(&sd_storage, sector, count, buf))

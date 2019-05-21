@@ -23,7 +23,7 @@
 
 // Module Callback
 typedef void (*cbMainModule_t)(const char *s);
-typedef void (*memcpy_t)(void *, void *, size_t);
+typedef void (*memcpy_t)(void *, const void *, size_t);
 typedef void (*memset_t)(void *, int, size_t);
 
 typedef struct _bdkParams_t

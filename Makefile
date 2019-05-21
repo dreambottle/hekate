@@ -6,7 +6,7 @@ include $(DEVKITARM)/base_rules
 
 ################################################################################
 
-IPL_LOAD_ADDR := 0x40008000
+IPL_LOAD_ADDR := 0x40000000
 IPL_MAGIC := 0x43544349 #"ICTC"
 BLVERSION_MAJOR := 4
 BLVERSION_MINOR := 10
@@ -54,6 +54,7 @@ OBJS += $(addprefix $(BUILDDIR)/$(TARGET)/, \
 # Libraries.
 OBJS += $(addprefix $(BUILDDIR)/$(TARGET)/, \
 	lz.o blz.o \
+	xxhash.o lz4.o lz4frame.o \
 	diskio.o ff.o ffunicode.o ffsystem.o \
 	elfload.o elfreloc_arm.o \
 )
@@ -62,7 +63,7 @@ OBJS += $(addprefix $(BUILDDIR)/$(TARGET)/, \
 
 CUSTOMDEFINES := -DIPL_LOAD_ADDR=$(IPL_LOAD_ADDR) -DBL_MAGIC=$(IPL_MAGIC)
 CUSTOMDEFINES += -DBL_VER_MJ=$(BLVERSION_MAJOR) -DBL_VER_MN=$(BLVERSION_MINOR) -DBL_VER_HF=$(BLVERSION_HOTFX) -DBL_RESERVED=$(BL_RESERVED)
-CUSTOMDEFINES += -DMENU_LOGO_ENABLE
+# CUSTOMDEFINES += -DMENU_LOGO_ENABLE
 
 # 0: UART_A, 1: UART_B.
 #CUSTOMDEFINES += -DDEBUG_UART_PORT=0
@@ -83,6 +84,7 @@ all: $(TARGET).bin
 	@echo -n "Payload size is "
 	@wc -c < $(OUTPUTDIR)/$(TARGET).bin
 	@echo "Max size is 126296 Bytes."
+	@echo "Target size is <64512 Bytes."
 
 clean:
 	@rm -rf $(OBJS)

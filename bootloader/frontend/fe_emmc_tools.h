@@ -21,10 +21,14 @@
 void dump_emmc_system();
 void dump_emmc_user();
 void dump_emmc_boot();
+void dump_emmc_boot_lz4();
 void dump_emmc_rawnand();
+void dump_emmc_rawnand_lz4();
 
 void restore_emmc_boot();
+void restore_emmc_boot_lz4();
 void restore_emmc_rawnand();
+void restore_emmc_rawnand_lz4();
 void restore_emmc_gpp_parts();
 
 #endif
