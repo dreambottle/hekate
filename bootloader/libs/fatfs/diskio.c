@@ -10,6 +10,7 @@
 #include <string.h>
 #include "diskio.h"		/* FatFs lower layer API */
 #include "../../storage/sdmmc.h"
+#include "../../mem/mc.h"
 
 #define SDMMC_UPPER_BUFFER 0xB8000000
 #define DRAM_START         0x80000000
@@ -46,9 +47,8 @@ DRESULT disk_read (
 	UINT count		/* Number of sectors to read */
 )
 {
-	// if ((u32)buff >= DRAM_START
-	//// 	|| (((u32)buff >= 0x40000000) && ((u32)buff < 0x40004000))
-	// 	)
+	if ((u32)buff >= DRAM_START ||
+		(mc_is_ahb_redirect_enabled() && (u32)buff >= 0x40000000 && (u32)buff < 0x40040000))
 		return sdmmc_storage_read(&sd_storage, sector, count, buff) ? RES_OK : RES_ERROR;
 	u8 *buf = (u8 *)SDMMC_UPPER_BUFFER;
 	if (sdmmc_storage_read(&sd_storage, sector, count, buf))

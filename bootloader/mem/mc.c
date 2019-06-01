@@ -105,6 +105,10 @@ void mc_config_carveout()
 	MC(MC_SECURITY_CARVEOUT5_CFG0) = 0x8F;
 }
 
+bool mc_is_ahb_redirect_enabled() {
+	return MC(MC_IRAM_TOM) != 0;
+}
+
 void mc_enable_ahb_redirect()
 {
 	// Enable ARC_CLK_OVR_ON.

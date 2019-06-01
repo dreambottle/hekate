@@ -68,14 +68,16 @@
  * Prefer these methods in priority order (0 > 1 > 2)
  */
 #ifndef LZ4_FORCE_MEMORY_ACCESS   /* can be defined externally */
-#  if defined(__GNUC__) && \
-  ( defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__) || defined(__ARM_ARCH_6K__) \
-  || defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__) || defined(__ARM_ARCH_6T2__) )
-#    define LZ4_FORCE_MEMORY_ACCESS 2
-#  elif (defined(__INTEL_COMPILER) && !defined(_WIN32)) || defined(__GNUC__)
+// #  if defined(__GNUC__) && \
+//   ( defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__) || defined(__ARM_ARCH_6K__) \
+//   || defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__) || defined(__ARM_ARCH_6T2__) )
+// #    define LZ4_FORCE_MEMORY_ACCESS 2
+// #  elif (defined(__INTEL_COMPILER) && !defined(_WIN32)) || defined(__GNUC__)
+// #    define LZ4_FORCE_MEMORY_ACCESS 1
+// #  endif
 #    define LZ4_FORCE_MEMORY_ACCESS 1
-#  endif
 #endif
+
 
 /*
  * LZ4_FORCE_SW_BITCOUNT
@@ -218,12 +220,12 @@ typedef enum {
 /*-************************************
 *  Reading and writing into memory
 **************************************/
-static unsigned LZ4_isLittleEndian(void)
-{
-    return 1;
-    // const union { U32 u; BYTE c[4]; } one = { 1 };   /* don't use static : performance detrimental */
-    // return one.c[0];
-}
+#define LZ4_isLittleEndian() 1
+// static unsigned LZ4_isLittleEndian(void)
+// {
+//     const union { U32 u; BYTE c[4]; } one = { 1 };   /* don't use static : performance detrimental */
+//     return one.c[0];
+// }
 
 
 #if defined(LZ4_FORCE_MEMORY_ACCESS) && (LZ4_FORCE_MEMORY_ACCESS==2)
@@ -278,6 +280,44 @@ static void LZ4_write32(void* memPtr, U32 value)
 
 #endif /* LZ4_FORCE_MEMORY_ACCESS */
 
+// ========== SWITCH MODS ==========
+inline static void LZ4_copy4(void *dst, const void *src)
+{
+    ((uint8_t *)dst)[0] = ((uint8_t *)src)[0];
+    ((uint8_t *)dst)[1] = ((uint8_t *)src)[1];
+    ((uint8_t *)dst)[2] = ((uint8_t *)src)[2];
+    ((uint8_t *)dst)[3] = ((uint8_t *)src)[3];
+}
+inline static void LZ4_copy8(void *dst, const void *src)
+{
+    // if (0 == ((uint32_t)dst | (uint32_t)src) & 3)
+    // {
+    //     uint32_t *src32 = (uint32_t *)src;
+    //     uint32_t *dst32 = (uint32_t *)dst;
+    //     dst32[0] = src32[0];
+    //     dst32[1] = src32[1];
+    // } else
+    // {
+    uint8_t *src8 = (uint8_t *)src;
+    uint8_t *dst8 = (uint8_t *)dst;
+    dst8[0] = src8[0];
+    dst8[1] = src8[1];
+    dst8[2] = src8[2];
+    dst8[3] = src8[3];
+    dst8[4] = src8[4];
+    dst8[5] = src8[5];
+    dst8[6] = src8[6];
+    dst8[7] = src8[7];
+    // }
+}
+inline static void LZ4_copy8_aligned(void *dst, const void *src)
+{
+    uint32_t *src32 = (uint32_t *)src;
+    uint32_t *dst32 = (uint32_t *)dst;
+    dst32[0] = src32[0];
+    dst32[1] = src32[1];
+}
+// ========== SWITCH MODS END ==========
 
 static U16 LZ4_readLE16(const void* memPtr)
 {
@@ -308,7 +348,19 @@ void LZ4_wildCopy8(void* dstPtr, const void* srcPtr, void* dstEnd)
     const BYTE* s = (const BYTE*)srcPtr;
     BYTE* const e = (BYTE*)dstEnd;
 
-    do { memcpy(d,s,8); d+=8; s+=8; } while (d<e);
+    // this part was a bottleneck and was optimized for switch
+    if (((uint32_t)d & 3U) == ((uint32_t)s & 3U))
+    {
+        LZ4_copy4(d,s);
+        d+=4; s+=4;
+        d = (void*) ((uint32_t)d & ~3U);
+        s = (void*) ((uint32_t)s & ~3U);
+        while (d<e) { LZ4_copy8_aligned(d,s); d+=8; s+=8; };
+    } else
+    {
+        do { LZ4_copy8(d,s); d+=8; s+=8; } while (d<e);
+    }
+    // do { memcpy(d,s,8); d+=8; s+=8; } while (d<e);
 }
 
 static const unsigned inc32table[8] = {0, 1, 2,  1,  0,  4, 4, 4};
@@ -316,16 +368,19 @@ static const int      dec64table[8] = {0, 0, 0, -1, -4,  1, 2, 3};
 
 
 #ifndef LZ4_FAST_DEC_LOOP
-#  if defined(__i386__) || defined(__x86_64__)
-#    define LZ4_FAST_DEC_LOOP 1
-#  elif defined(__aarch64__) && !defined(__clang__)
-     /* On aarch64, we disable this optimization for clang because on certain
-      * mobile chipsets and clang, it reduces performance. For more information
-      * refer to https://github.com/lz4/lz4/pull/707. */
-#    define LZ4_FAST_DEC_LOOP 1
-#  else
+// #  if defined(__i386__) || defined(__x86_64__)
+// #    define LZ4_FAST_DEC_LOOP 1
+// #  elif defined(__aarch64__) && !defined(__clang__)
+//      /* On aarch64, we disable this optimization for clang because on certain
+//       * mobile chipsets and clang, it reduces performance. For more information
+//       * refer to https://github.com/lz4/lz4/pull/707. */
+// #    define LZ4_FAST_DEC_LOOP 1
+// #  else
+// #    define LZ4_FAST_DEC_LOOP 0
+// #  endif
+
+// When set to 1 it's both slower and generates more code. We don't use it anyway, forcing it for readability.
 #    define LZ4_FAST_DEC_LOOP 0
-#  endif
 #endif
 
 #if LZ4_FAST_DEC_LOOP
@@ -1946,10 +2001,12 @@ LZ4_decompress_generic(
                 op[2] = match[2];
                 op[3] = match[3];
                 match += inc32table[offset];
-                memcpy(op+4, match, 4);
+                LZ4_copy4(op+4, match);
+                // memcpy(op+4, match, 4);
                 match -= dec64table[offset];
             } else {
-                memcpy(op, match, 8);
+                LZ4_copy8(op, match);
+                // memcpy(op, match, 8);
                 match += 8;
             }
             op += 8;
@@ -1964,7 +2021,8 @@ LZ4_decompress_generic(
                 }
                 while (op < cpy) { *op++ = *match++; }
             } else {
-                memcpy(op, match, 8);
+                LZ4_copy8(op, match);
+                // memcpy(op, match, 8);
                 if (length > 16)  { LZ4_wildCopy8(op+8, match+8, cpy); }
             }
             op = cpy;   /* wildcopy correction */

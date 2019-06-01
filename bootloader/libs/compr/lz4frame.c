@@ -71,7 +71,8 @@
  * towards another library or solution of their choice
  * by modifying below section.
  */
-#include <stdlib.h>   /* malloc, calloc, free */
+//#include <stdlib.h>   /* malloc, calloc, free */
+#include "../../mem/heap.h"
 #ifndef LZ4_SRC_INCLUDED   /* avoid redefinition when sources are coalesced */
 #  define ALLOC(s)          malloc(s)
 #  define ALLOC_AND_ZERO(s) calloc(1,(s))
@@ -1514,7 +1515,7 @@ size_t LZ4F_decompress(LZ4F_dctx* dctx,
                 /* next block is a compressed block */
                 dctx->tmpInTarget = nextCBlockSize + crcSize;
                 dctx->dStage = dstage_getCBlock;
-                if (dstPtr==dstEnd || srcPtr==srcEnd) {
+                if (srcPtr==srcEnd/* || dstPtr==dstEnd*/) {
                     nextSrcSizeHint = BHSize + nextCBlockSize + crcSize;
                     doAnotherStage = 0;
                 }
@@ -1524,9 +1525,9 @@ size_t LZ4F_decompress(LZ4F_dctx* dctx,
         case dstage_copyDirect:   /* uncompressed block */
             {   size_t const minBuffSize = MIN((size_t)(srcEnd-srcPtr), (size_t)(dstEnd-dstPtr));
                 size_t const sizeToCopy = MIN(dctx->tmpInTarget, minBuffSize);
-                timer_lz4 = get_tmr_ms();
+                // timer_lz4 = get_tmr_ms();
                 memcpy(dstPtr, srcPtr, sizeToCopy);
-                cpy_time += get_tmr_ms() - timer_lz4;
+                // cpy_time += get_tmr_ms() - timer_lz4;
                 if (dctx->frameInfo.blockChecksumFlag) {
                     (void)XXH32_update(&dctx->blockChecksum, srcPtr, sizeToCopy);
                 }
@@ -1544,7 +1545,7 @@ size_t LZ4F_decompress(LZ4F_dctx* dctx,
                 srcPtr += sizeToCopy;
                 dstPtr += sizeToCopy;
                 if (sizeToCopy == dctx->tmpInTarget) {   /* all done */
-                    ++cpy_direct_hits;
+                    // ++cpy_direct_hits;
                     if (dctx->frameInfo.blockChecksumFlag) {
                         dctx->tmpInSize = 0;
                         dctx->dStage = dstage_getBlockChecksum;
@@ -1641,12 +1642,12 @@ size_t LZ4F_decompress(LZ4F_dctx* dctx,
                     dictSize = 64 KB;
                 }
                 /* enough capacity in `dst` to decompress directly there */
-                timer_lz4 = get_tmr_ms();
+                // timer_lz4 = get_tmr_ms();
                 decodedSize = LZ4_decompress_safe_usingDict(
                         (const char*)selectedIn, (char*)dstPtr,
                         (int)dctx->tmpInTarget, (int)dctx->maxBlockSize,
                         dict, (int)dictSize);
-                dec_time += get_tmr_ms()-timer_lz4;
+                // dec_time += get_tmr_ms()-timer_lz4;
                 if (decodedSize < 0) return err0r(LZ4F_ERROR_GENERIC);   /* decompression failed */
                 // timer_lz4 = get_tmr_ms();
                 // if (dctx->frameInfo.contentChecksumFlag)
@@ -1696,10 +1697,10 @@ size_t LZ4F_decompress(LZ4F_dctx* dctx,
                 dec_time += get_tmr_ms()-timer_lz4;
                 if (decodedSize < 0)  /* decompression failed */
                     return err0r(LZ4F_ERROR_decompressionFailed);
-                timer_lz4 = get_tmr_ms();
-                if (dctx->frameInfo.contentChecksumFlag)
-                    // XXH32_update(&(dctx->xxh), dctx->tmpOut, (size_t)decodedSize);
-                dec_hash_time += get_tmr_ms()-timer_lz4;
+                // timer_lz4 = get_tmr_ms();
+                // if (dctx->frameInfo.contentChecksumFlag)
+                //     XXH32_update(&(dctx->xxh), dctx->tmpOut, (size_t)decodedSize);
+                // dec_hash_time += get_tmr_ms()-timer_lz4;
                 if (dctx->frameInfo.contentSize)
                     dctx->frameRemainingSize -= (size_t)decodedSize;
                 dctx->tmpOutSize = (size_t)decodedSize;

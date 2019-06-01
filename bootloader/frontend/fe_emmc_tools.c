@@ -42,6 +42,7 @@
 #define IRAM_AVAILABLE_START (0x40010000)//-(1<<10))
 #define IRAM_AVAILABLE_END   0x40040000
 #define IRAM_VANILLA_HEKATE_START 0x4001F800
+#define IRAM2_START 0x40010000
 #define IRAM3_START 0x40020000
 #define IRAM4_START 0x40030000
 
@@ -120,24 +121,30 @@ static int _restore_emmc_part_lz4(char *sd_path, sdmmc_storage_t *storage, emmc_
 	int res = 0;
 	FIL fp;
 
-	// align for sd reads - 0x8 bytes
-	u8 *buf_sd = (u8 *)IRAM_AVAILABLE_START - 64;
-	size_t buf_sd_size_max = (128 << 10) + 64;
+	// align for sd reads - 0x8 bytes.
+	#define SD_ALIGN (8U)
+	#define SRC_EXTRA_SPACE (8+SD_ALIGN)
+	u8 *buf_sd = (u8 *)IRAM2_START - SRC_EXTRA_SPACE;
+	// for lz4, should be at least: block size (currently, 64K only) + 4 block header + 4 block hash + 8 SD alignment overhead
+	// must be aligned to 8 for sd reads!
+	// 128K src buf is ~10-15% faster for SD reads, than 64K
+	const size_t buf_sd_size_max = (64 << 10) + SRC_EXTRA_SPACE;
 	u8 *buf_em = (u8 *)IRAM4_START;//buf_sd + buf_sd_size_max;
-	size_t buf_em_size_max = 64<<10;//IRAM_AVAILABLE_END - (UINT)buf_em;//(127 << 10);
+	// for lz4, should be equal or multiple of block size
+	const size_t buf_em_size_max = 64 << 10;//IRAM_AVAILABLE_END - (UINT)buf_em;//(127 << 10);
 
-	// NX_EMMC_BLOCKSIZE - block size
-	UINT buf_sd_size_cur = 0;
-	UINT buf_sd_offset = 0;
-	UINT buf_em_offset = 0;
+	// NX_EMMC_BLOCKSIZE - block size (512)
+	u32 buf_sd_size_cur = 0;
+	u32 buf_sd_offset = 0;
+	u32 buf_em_offset = 0;
 	u32 lba_start = part->lba_start;
 	u32 lba_end = part->lba_end + 1;
 	u32 lba_total = lba_end - lba_start;
 	u32 lba_offset = 0;
-	UINT lz4_src_size;
-	UINT lz4_dst_size;
-	LZ4F_dctx *lz4f_dctx = (void*) IRAM_AVAILABLE_START-264;
-	LZ4F_decompressOptions_t lz4f_dopt = { .stableDst = 0, .reserved = { 0, 0, 0 } };
+	u32 lz4_src_size;
+	u32 lz4_dst_size;
+	LZ4F_dctx *lz4f_dctx = (void*) buf_sd - 200; // 200 - sizeof dctx
+	// LZ4F_decompressOptions_t lz4f_dopt = { .stableDst = 0, .reserved = { 0, 0, 0 } };
 	LZ4F_frameInfo_t lz4f_frame_info = LZ4F_INIT_FRAMEINFO;
 	u32 lz4_block_size = 64<<10;
 	size_t lz4ret;
@@ -152,7 +159,7 @@ static int _restore_emmc_part_lz4(char *sd_path, sdmmc_storage_t *storage, emmc_
 	// sd_path = "rawnand16KI.lz4";
 	sd_path = "rawnand64KI.lz4";
 
-	gfx_con.fntsz = 8;
+	gfx_con.fntsz = 16;
 	gfx_printf("\nOpening: %s\n", sd_path);
 	res = f_open(&fp, sd_path, FA_READ);
 	if (res)
@@ -162,7 +169,7 @@ static int _restore_emmc_part_lz4(char *sd_path, sdmmc_storage_t *storage, emmc_
 			EPRINTFARGS("Error (%d) while opening backup. Continuing...\n", res);
 		else
 			WPRINTFARGS("Error (%d) file not found. Continuing...\n", res);
-		return 0;
+		return 1;
 	}
 
 	gfx_con_getpos(&gfx_con.savedx, &gfx_con.savedy);
@@ -204,7 +211,7 @@ static int _restore_emmc_part_lz4(char *sd_path, sdmmc_storage_t *storage, emmc_
 
 	FSIZE_t file_bytes_total = f_size(&fp);
 	gfx_printf("================================\n");
-	gfx_printf("Backup file size: %d MiB\n", (file_bytes_total >> 20));
+	gfx_printf("Backup file size: %d MiB\n", (u32)(file_bytes_total >> 20));
 	gfx_printf("LZ4_dctx  : 0x%x\n", lz4f_dctx);
 	gfx_printf("Buffer in : 0x%x %dKiB\n", buf_sd, (buf_sd_size_max) >> 10);
 	gfx_printf("Buffer out: 0x%x %dKiB\n", buf_em, (buf_em_size_max) >> 10);
@@ -221,7 +228,7 @@ static int _restore_emmc_part_lz4(char *sd_path, sdmmc_storage_t *storage, emmc_
 		EPRINTF("\nYour device may be in an inoperative state!\n\nPress any key...\n");
 
 		f_close(&fp);
-		return 0;
+		return 1;
 	}
 
 	// lz4f_dctx = IRAM2_2K_BUF_0;
@@ -230,7 +237,7 @@ static int _restore_emmc_part_lz4(char *sd_path, sdmmc_storage_t *storage, emmc_
 	lz4ret = LZ4F_createDecompressionContext(&lz4f_dctx, LZ4F_VERSION);
 	if (_print_lz4_error(lz4ret)) {
 		f_close(&fp);
-		return 0;
+		return 1;
 	}
 	gfx_printf("LZ4 context allocated at 0x%x\n\n", lz4f_dctx);
 	
@@ -241,7 +248,6 @@ static int _restore_emmc_part_lz4(char *sd_path, sdmmc_storage_t *storage, emmc_
 	_print_lz4_error(lz4ret);
 
 	lz4_block_size = LZ4F_getBlockSize(lz4f_frame_info.blockSizeID);
-	gfx_printf("lz4ret: %d\n", lz4ret);
 	gfx_printf("Content size: %dMiB\n", (u32)(lz4f_frame_info.contentSize >> 20));
 	gfx_printf("Content checksum present: %d\n", lz4f_frame_info.contentChecksumFlag);
 	gfx_printf("Block size ID: %d (%dKiB)\n", lz4f_frame_info.blockSizeID, lz4_block_size>>10);
@@ -252,6 +258,15 @@ static int _restore_emmc_part_lz4(char *sd_path, sdmmc_storage_t *storage, emmc_
 	// gfx_printf("dctx sizeof: %d\n", sizeof(LZ4F_dctx)); //200
 	// gfx_printf("dctx max block size: %d\n", lz4f_dctx->maxBlockSize);
 	// gfx_printf("\n\n");
+	if (lz4_block_size != (64<<10) || lz4f_frame_info.blockMode != LZ4F_blockIndependent)
+	{
+		gfx_printf("Current implementation only supports 64K block size\n with independent blocks!\n");
+		gfx_printf("Aborting...\n");
+		
+		LZ4F_freeDecompressionContext(lz4f_dctx);
+		f_close(&fp);
+		return 1;
+	}
 
 	gfx_printf("Sectors to write: %d (%dMB)\n", lba_total, lba_total>>11);
 	gfx_printf("Processing...\n\n");
@@ -266,26 +281,21 @@ static int _restore_emmc_part_lz4(char *sd_path, sdmmc_storage_t *storage, emmc_
 	u32 timer_dec = 0;
 	u32 timer_post = 0;
 
-	// u32 dbg_loops = 17;
-	// 20s at 600kps
-	// u32 dbg_loops = 800;
-	// 8s at 600kps
-	u32 dbg_loops = 300;
-	for(; (lba_offset < lba_total) && lz4ret
-	    && dbg_loops
-		;--dbg_loops
-		)
+	while(
+		lba_offset < lba_total &&
+		// lba_offset < (300 << 11) &&// # MB out
+		lz4ret)
 	{
 		u32 tmr = get_tmr_ms();
 		if (lz4ret > (buf_sd_size_cur - buf_sd_offset))
 		{
-			// todo count misaligns
-			UINT offset_aligned = buf_sd_offset & ~0x7U;
+			// copy remaining buffer to the start, aligning to 8 bytes. (sd read destination buffer must be aligned to 8)
+			UINT offset_aligned = buf_sd_offset & ~(SD_ALIGN-1U);//~0x7U;
 			UINT remaining_alig = buf_sd_size_cur - offset_aligned;
 			memcpy(buf_sd, buf_sd+offset_aligned, remaining_alig);
 			res = f_read(&fp, buf_sd + remaining_alig, buf_sd_size_max - remaining_alig, &buf_sd_size_cur);
 			// gfx_printf("SD READ [%d] %dB; memcopied %dB\n", res, buf_sd_size_cur, remaining_alig);
-			buf_sd_offset = buf_sd_offset & 0x7U;
+			buf_sd_offset = buf_sd_offset & (SD_ALIGN-1U);//0x7U;
 			bytes_read += buf_sd_size_cur;
 			buf_sd_size_cur += remaining_alig;
 		}
@@ -296,9 +306,7 @@ static int _restore_emmc_part_lz4(char *sd_path, sdmmc_storage_t *storage, emmc_
 		lz4_src_size = MIN(lz4_src_size, lz4ret);
 		lz4_dst_size = buf_em_size_max - buf_em_offset;
 
-		// gfx_printf("src buf: %d / %d ; pass: %d ; hint: %d \n", buf_sd_offset, buf_sd_size_cur, lz4_src_size, lz4ret);
-		// gfx_printf("dst buf: %d / %d ; pass: %d \n", buf_em_offset, buf_em_size_max, lz4_dst_size);
-		lz4ret = LZ4F_decompress(lz4f_dctx, buf_em, &lz4_dst_size, buf_sd + buf_sd_offset, &lz4_src_size, &lz4f_dopt);
+		lz4ret = LZ4F_decompress(lz4f_dctx, buf_em + buf_em_offset, &lz4_dst_size, buf_sd + buf_sd_offset, &lz4_src_size, NULL);
 		// after decompression, lz4_*_size vars store a value of how much was actually read/written to buffers.
 
 		buf_sd_offset += lz4_src_size;
@@ -307,69 +315,70 @@ static int _restore_emmc_part_lz4(char *sd_path, sdmmc_storage_t *storage, emmc_
 
 		tmr = get_tmr_ms();
 		int blocks_ready = buf_em_offset / NX_EMMC_BLOCKSIZE;
+
+		// clearing dst buf, EMMC operations
 		if (
-			// buf_em_offset == buf_em_size_max ||
-			(buf_em_size_max - buf_em_offset) < (64<<10) ||
-		    lz4ret == 0
+			1 // every time
+			// (buf_em_size_max - buf_em_offset) < (64<<10) ||
+		    // lz4ret == 0
 			) {
 			// todo write or verify
 
-			// while (!sdmmc_storage_write(storage, lba_curr, num, buf))
+			// if (!sdmmc_storage_write(storage, lba_start + lba_offset, blocks_ready, buf_em))
 			// {
-			// 	gfx_con.fntsz = 16;
-			// 	EPRINTFARGS("\nFailed to write %d blocks @ LBA %08X\nfrom eMMC. Aborting..\n",
-			// 		num, lba_curr);
+			// 	EPRINTFARGS("\nFailed to write %d blocks @ LBA %08X\nto eMMC. Aborting...\n",
+			// 		blocks_ready, lba_start + lba_offset);
 			// 	EPRINTF("\nYour device may be in an inoperative state!\n\nPress any key and try again...\n");
-
-			// 	f_close(&fp);
-			// 	return 0;
+			// 	break;
 			// }
 			
 			buf_em_offset = buf_em_offset % NX_EMMC_BLOCKSIZE;
 			lba_offset += blocks_ready;
 		}
-		// gfx_printf("loop# : %d       \n", dbg_loops);
-		// gfx_printf("lz4ret: %d       \n", (u32)lz4ret);
-		// gfx_printf("Sectors covered: %d/%d  \n\n", lba_offset, lba_total);
 		if(_print_lz4_error(lz4ret)) break;
-		
-		u8 btn = btn_wait_timeout(0, BTN_VOL_DOWN | BTN_VOL_UP);
-		if ((btn & BTN_VOL_DOWN) && (btn & BTN_VOL_UP))
+
+		// skip btn check in most loop cycles to improve performance
+		int btn_check = 40 * (buf_em_size_max / NX_EMMC_BLOCKSIZE);
+		// == 128 blocks per lz4 sector, check every 40th cycle
+		if (0 == (lba_offset % btn_check))
 		{
-			gfx_con.fntsz = 16;
-			WPRINTF("\n\nDecompression was cancelled!");
-			break;
+			u8 btn = btn_wait_timeout(0, BTN_VOL_DOWN | BTN_VOL_UP);
+			if ((btn & BTN_VOL_DOWN) && (btn & BTN_VOL_UP))
+			{
+				EPRINTF("\n\nDecompression was cancelled!");
+				msleep(1000);
+				break;
+			}
 		}
+
 		timer_post += get_tmr_ms() - tmr;
 	}
 
 	timer_ms = get_tmr_ms() - timer_ms;
 	u32 kbytes_written = lba_offset>>1;
 
-	gfx_printf("timers LZ4 : dec:%d hash:%d bufHits:%d; srcBufHits:%d;\n", dec_time, dec_hash_time, dst_buf_hits, src_buf_hits);
-	gfx_printf("timers LZ4 : cpy:%d hash:%d cpyHits:%d; hedBufHits:%d;\n", cpy_time, cpy_hash_time, cpy_direct_hits, hed_buf_hits);
-	gfx_printf("timers loop: sd:%d dec:%d post:%d\n", timer_sd, timer_dec, timer_post);
-	gfx_printf("LZ4 dec    : %dms, %d KB/s\n", timer_ms, (u32)((((u64)kbytes_written)<<10)/(u64)timer_ms));
-	gfx_printf("Decomp     : src %dKiB => dst %dMiB\n", (bytes_read>>10), kbytes_written>>10);
-
-	gfx_printf("Sectors left: %d (should be 0!)\n\n", lba_total - lba_offset);
-	// todo better msg, also try pickup next frame (next file?)
+	// gfx_printf("dec LZ4    : dec:%d hash:%d bufHits:%d; srcBufHits:%d;\n", dec_time, dec_hash_time, dst_buf_hits, src_buf_hits);
+	// gfx_printf("cpy LZ4    : cpy:%d hash:%d cpyHits:%d; hedBufHits:%d;\n", cpy_time, cpy_hash_time, cpy_direct_hits, hed_buf_hits);
+	gfx_printf("loop timers: sd:%d dec:%d post:%d\n", timer_sd, timer_dec, timer_post);
+	gfx_printf("Dec size   : src %dKiB => dst %dMiB\n", (bytes_read>>10), kbytes_written>>10);
+	gfx_printf("Dec speed  : %dms, %d KB/s\n", timer_dec, (u32)((((u64)kbytes_written)<<10)/(u64)timer_dec));
+	gfx_printf("Total speed: %dms, %d KB/s\n", timer_ms, (u32)((((u64)kbytes_written)<<10)/(u64)timer_ms));
 	
-
-	// // memcpy iram2iram
-	// timer_us = get_tmr_us();
-	// for (int i=0;i<256;++i)
-	// 	memcpy((void*)IRAM_AVAILABLE_START, (void*)IRAM_VANILLA_HEKATE_START + (i*32), 64<<10);
-	// timer_us = get_tmr_us() - timer_us;
-	// gfx_printf("BENCH memcpy IRAM2IRAM %dKiB: %dms, %d MB/s\n", 16<<10, timer_us/1000, (16*1000000)/(timer_us));
-	// u32 pernand_s = (1953 * timer_us) / 1000000;
-	// gfx_printf("32GB would take: %dm %ds\n", pernand_s/60, pernand_s%60);
-
+	// full nand time estimates
+	u32 pernand_s = (u32)((timer_dec * (u64)lba_total) / lba_offset)>>10;
+	gfx_printf("nand dec time estimate  : %dm %ds\n", pernand_s/60, pernand_s%60);
+	pernand_s = (u32)((timer_post * (u64)lba_total) / lba_offset)>>10;
+	gfx_printf("nand post time estimate: %dm %ds\n", pernand_s/60, pernand_s%60);
+	pernand_s = (u32)((timer_ms * (u64)lba_total) / lba_offset)>>10;
+	gfx_printf("nand total time estimate: %dm %ds\n", pernand_s/60, pernand_s%60);
+	
+	u32 sectors_left = lba_total - lba_offset;
+	gfx_printf("Sectors remaining: %d\n%s\n\n", sectors_left, sectors_left == 0 ? "Success!" : "Failed, should be 0!");
 
 	LZ4F_freeDecompressionContext(lz4f_dctx);
 	gfx_con.fntsz = 16;
 	f_close(&fp);
-	return 0;
+	return sectors_left;
 }
 
 static int _restore_emmc_part(char *sd_path, sdmmc_storage_t *storage, emmc_part_t *part, bool allow_multi_part)
@@ -671,7 +680,7 @@ static void _restore_emmc_selected(emmcPartType_t restoreType, compressionType_t
 			emmcsn_path_impl(sdPath, "/restore", bootPart.name, &storage);
 
 			if (compression == LZ4)
-				res = _restore_emmc_part_lz4(sdPath, &storage, &bootPart);
+				res = !_restore_emmc_part_lz4(sdPath, &storage, &bootPart);
 			else
 				res = _restore_emmc_part(sdPath, &storage, &bootPart, false);
 		}
@@ -712,7 +721,7 @@ static void _restore_emmc_selected(emmcPartType_t restoreType, compressionType_t
 
 			emmcsn_path_impl(sdPath, "/restore", rawPart.name, &storage);
 			if (compression == LZ4)
-				res = _restore_emmc_part_lz4(sdPath, &storage, &rawPart);
+				res = !_restore_emmc_part_lz4(sdPath, &storage, &rawPart);
 			else 
 				res = _restore_emmc_part(sdPath, &storage, &rawPart, true);
 		}
